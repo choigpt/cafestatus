@@ -4,8 +4,9 @@ import com.example.cafestatus.cafe.dto.CafeCreateRequest;
 import com.example.cafestatus.status.entity.Availability;
 import com.example.cafestatus.status.entity.CrowdLevel;
 import com.example.cafestatus.status.dto.UpdateCafeStatusRequest;
-import com.example.cafestatus.support.CreatedCafe;
+import com.example.cafestatus.support.TestAuthHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,30 +29,51 @@ class CafeControllerTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
 
+    TestAuthHelper authHelper;
+
+    @BeforeEach
+    void setUp() {
+        authHelper = new TestAuthHelper(mockMvc, objectMapper);
+    }
+
     @Test
-    @DisplayName("카페를 등록하면 201과 함께 cafeId와 ownerToken을 반환한다")
-    void createCafe_returnsOwnerTokenAndCafeId() throws Exception {
+    @DisplayName("카페를 등록하면 201과 함께 카페 정보를 반환한다")
+    void createCafe_returnsCreated() throws Exception {
+        String token = authHelper.signUpAndGetToken();
         CafeCreateRequest req = new CafeCreateRequest(
                 "카페A", 37.5665, 126.9780, "서울 어딘가"
         );
 
-        mockMvc.perform(post("/api/cafes")
+        mockMvc.perform(post("/api/owner/cafes")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.cafeId").isNumber())
-                .andExpect(jsonPath("$.ownerToken", notNullValue()))
-                .andExpect(jsonPath("$.ownerToken", matchesPattern("^.{32,}$")));
+                .andExpect(jsonPath("$.id").isNumber())
+                .andExpect(jsonPath("$.name").value("카페A"));
+    }
+
+    @Test
+    @DisplayName("인증 없이 카페 등록하면 401을 반환한다")
+    void createCafe_withoutAuth_returns401() throws Exception {
+        CafeCreateRequest req = new CafeCreateRequest(
+                "카페A", 37.5665, 126.9780, "서울 어딘가"
+        );
+
+        mockMvc.perform(post("/api/owner/cafes")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(req)))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
     @DisplayName("카페 ID로 조회하면 카페 상세 정보를 반환한다")
     void getCafe_returnsCafeResponse() throws Exception {
-        CreatedCafe created = createCafeWithToken("카페B", 37.5665, 126.9780);
+        long cafeId = createCafeAndGetId("카페B", 37.5665, 126.9780);
 
-        mockMvc.perform(get("/api/cafes/{id}", created.cafeId()))
+        mockMvc.perform(get("/api/cafes/{id}", cafeId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value((int) created.cafeId()))
+                .andExpect(jsonPath("$.id").value((int) cafeId))
                 .andExpect(jsonPath("$.name").value("카페B"))
                 .andExpect(jsonPath("$.latitude").value(37.5665))
                 .andExpect(jsonPath("$.longitude").value(126.9780))
@@ -69,9 +91,11 @@ class CafeControllerTest {
     @Test
     @DisplayName("근처 검색 시 반경 내 카페만 조회된다")
     void near_returnsCafesWithinRadiusBoundingBox() throws Exception {
-        createCafeWithToken("카페근처1", 37.5665, 126.9780);
-        createCafeWithToken("카페근처2", 37.5667, 126.9782);
-        createCafeWithToken("카페멀리", 35.1796, 129.0756);
+        String token = authHelper.signUpAndGetToken();
+        createCafeWithToken(token, "카페근처1", 37.5665, 126.9780);
+        createCafeWithToken(token, "카페근처2", 37.5667, 126.9782);
+        String token2 = authHelper.signUpAndGetToken();
+        createCafeWithToken(token2, "카페멀리", 35.1796, 129.0756);
 
         mockMvc.perform(get("/api/cafes/near")
                         .param("lat", "37.5665")
@@ -85,14 +109,14 @@ class CafeControllerTest {
     @Test
     @DisplayName("status 없는 카페는 UNKNOWN + ageMinutes -1 이다")
     void near_withoutStatus_returnsUnknown() throws Exception {
-        CreatedCafe created = createCafeWithToken("카페무상태", 37.5665, 126.9780);
+        long cafeId = createCafeAndGetId("카페무상태", 37.5665, 126.9780);
 
         mockMvc.perform(get("/api/cafes/near")
                         .param("lat", "37.5665")
                         .param("lng", "126.9780")
                         .param("radiusMeters", "500"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value((int) created.cafeId()))
+                .andExpect(jsonPath("$[0].id").value((int) cafeId))
                 .andExpect(jsonPath("$[0].status.crowdLevel").value("UNKNOWN"))
                 .andExpect(jsonPath("$[0].status.ageMinutes").value(-1))
                 .andExpect(jsonPath("$[0].status.stale").value(true));
@@ -101,7 +125,8 @@ class CafeControllerTest {
     @Test
     @DisplayName("status 있는 카페는 마지막 입력값 유지 + ageMinutes >= 0")
     void near_withStatus_returnsLastValue() throws Exception {
-        CreatedCafe created = createCafeWithToken("카페상태있음", 37.5665, 126.9780);
+        String token = authHelper.signUpAndGetToken();
+        long cafeId = createCafeWithToken(token, "카페상태있음", 37.5665, 126.9780);
 
         UpdateCafeStatusRequest req = new UpdateCafeStatusRequest(
                 CrowdLevel.NORMAL,
@@ -110,8 +135,8 @@ class CafeControllerTest {
                 Availability.NO
         );
 
-        mockMvc.perform(put("/api/owner/cafes/{id}/status", created.cafeId())
-                        .header("X-OWNER-TOKEN", created.ownerToken())
+        mockMvc.perform(put("/api/owner/cafes/{id}/status", cafeId)
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk());
@@ -142,8 +167,9 @@ class CafeControllerTest {
     @Test
     @DisplayName("near 조회에서 limit을 주면 결과 개수가 제한된다")
     void near_limit_applies() throws Exception {
-        createCafeWithToken("카페1", 37.5665, 126.9780);
-        createCafeWithToken("카페2", 37.5666, 126.9781);
+        String token = authHelper.signUpAndGetToken();
+        createCafeWithToken(token, "카페1", 37.5665, 126.9780);
+        createCafeWithToken(token, "카페2", 37.5666, 126.9781);
 
         mockMvc.perform(get("/api/cafes/near")
                         .param("lat", "37.5665")
@@ -157,8 +183,9 @@ class CafeControllerTest {
     @Test
     @DisplayName("페이지네이션이 적용된 카페 목록을 반환한다")
     void list_withPagination() throws Exception {
-        createCafeWithToken("페이지카페1", 37.5665, 126.9780);
-        createCafeWithToken("페이지카페2", 37.5666, 126.9781);
+        String token = authHelper.signUpAndGetToken();
+        createCafeWithToken(token, "페이지카페1", 37.5665, 126.9780);
+        createCafeWithToken(token, "페이지카페2", 37.5666, 126.9781);
 
         mockMvc.perform(get("/api/cafes")
                         .param("page", "0")
@@ -169,10 +196,16 @@ class CafeControllerTest {
                 .andExpect(jsonPath("$.totalPages").value(2));
     }
 
-    private CreatedCafe createCafeWithToken(String name, double lat, double lng) throws Exception {
+    private long createCafeAndGetId(String name, double lat, double lng) throws Exception {
+        String token = authHelper.signUpAndGetToken();
+        return createCafeWithToken(token, name, lat, lng);
+    }
+
+    private long createCafeWithToken(String token, String name, double lat, double lng) throws Exception {
         CafeCreateRequest req = new CafeCreateRequest(name, lat, lng, null);
 
-        String json = mockMvc.perform(post("/api/cafes")
+        String json = mockMvc.perform(post("/api/owner/cafes")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isCreated())
@@ -180,8 +213,6 @@ class CafeControllerTest {
                 .getResponse()
                 .getContentAsString();
 
-        long id = objectMapper.readTree(json).get("cafeId").asLong();
-        String token = objectMapper.readTree(json).get("ownerToken").asText();
-        return new CreatedCafe(id, token);
+        return objectMapper.readTree(json).get("id").asLong();
     }
 }

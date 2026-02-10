@@ -1,16 +1,13 @@
 package com.example.cafestatus.cafe.controller;
 
 import com.example.cafestatus.cafe.dto.*;
-import com.example.cafestatus.cafe.entity.Cafe;
 import com.example.cafestatus.cafe.service.CafeSearchService;
 import com.example.cafestatus.cafe.service.CafeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -26,13 +23,6 @@ public class CafeController {
     public CafeController(CafeService cafeService, CafeSearchService cafeSearchService) {
         this.cafeService = cafeService;
         this.cafeSearchService = cafeSearchService;
-    }
-
-    @Operation(summary = "카페 등록")
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public CafeOwnerTokenResponse create(@Valid @RequestBody CafeCreateRequest req) {
-        return cafeService.create(req);
     }
 
     @Operation(summary = "카페 단건 조회")

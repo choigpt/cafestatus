@@ -34,7 +34,7 @@ class StatusViewMapperTest {
     @DisplayName("방금 업데이트된 상태는 stale=false이고 ageMinutes=0이다")
     void from_freshStatus_notStale() {
         Instant now = Instant.now();
-        Cafe cafe = new Cafe("테스트카페", 37.5665, 126.9780, null, "token");
+        Cafe cafe = new Cafe("테스트카페", 37.5665, 126.9780, null, null);
         CafeLiveStatus status = new CafeLiveStatus(
                 cafe, CrowdLevel.NORMAL, Availability.YES, Availability.MAYBE, Availability.NO,
                 now, now.plusSeconds(1800)
@@ -54,7 +54,7 @@ class StatusViewMapperTest {
     @DisplayName("30분 이상 지난 상태는 stale=true이다")
     void from_oldStatus_isStale() {
         Instant updatedAt = Instant.now().minusSeconds(1801);
-        Cafe cafe = new Cafe("테스트카페", 37.5665, 126.9780, null, "token");
+        Cafe cafe = new Cafe("테스트카페", 37.5665, 126.9780, null, null);
         CafeLiveStatus status = new CafeLiveStatus(
                 cafe, CrowdLevel.FULL, Availability.NO, Availability.NO, Availability.NO,
                 updatedAt, updatedAt.plusSeconds(1800)

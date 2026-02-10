@@ -3,7 +3,9 @@ package com.example.cafestatus.status.service;
 import com.example.cafestatus.cafe.entity.Cafe;
 import com.example.cafestatus.cafe.service.CafeService;
 import com.example.cafestatus.common.exception.NotFoundException;
+import com.example.cafestatus.status.cache.StatusCacheModel;
 import com.example.cafestatus.status.dto.CafeStatusSseEvent;
+import com.example.cafestatus.status.dto.StatusSummary;
 import com.example.cafestatus.status.dto.UpdateCafeStatusRequest;
 import com.example.cafestatus.status.entity.CafeLiveStatus;
 import com.example.cafestatus.status.mapper.StatusViewMapper;
@@ -26,18 +28,37 @@ public class CafeStatusService {
     private final CafeService cafeService;
     private final CafeLiveStatusRepository repo;
     private final StatusSseRegistry sseRegistry;
+    private final CafeStatusCacheService cacheService;
 
     public CafeStatusService(CafeService cafeService,
                              CafeLiveStatusRepository repo,
-                             StatusSseRegistry sseRegistry) {
+                             StatusSseRegistry sseRegistry,
+                             CafeStatusCacheService cacheService) {
         this.cafeService = cafeService;
         this.repo = repo;
         this.sseRegistry = sseRegistry;
+        this.cacheService = cacheService;
     }
 
     public CafeLiveStatus getOrThrow(Long cafeId) {
         return repo.findById(cafeId)
                 .orElseThrow(() -> new NotFoundException("Status not found for cafeId: " + cafeId));
+    }
+
+    public StatusSummary getStatusSummary(Long cafeId) {
+        Instant now = Instant.now();
+
+        StatusSummary cached = cacheService.get(cafeId)
+                .map(model -> model.toSummary(now))
+                .orElse(null);
+        if (cached != null) {
+            return cached;
+        }
+
+        CafeLiveStatus status = repo.findById(cafeId)
+                .orElseThrow(() -> new NotFoundException("Status not found for cafeId: " + cafeId));
+        cacheService.put(cafeId, status);
+        return StatusViewMapper.from(status, now);
     }
 
     @Transactional
@@ -70,8 +91,13 @@ public class CafeStatusService {
                         expiresAt
                 )));
 
+        cacheService.put(cafeId, saved);
+
         var statusDto = StatusViewMapper.from(saved, now);
-        sseRegistry.publish(cafeId, new CafeStatusSseEvent(cafeId, statusDto));
+        boolean published = cacheService.publishUpdate(cafeId, statusDto);
+        if (!published) {
+            sseRegistry.publish(cafeId, new CafeStatusSseEvent(cafeId, statusDto));
+        }
 
         return saved;
     }

@@ -38,11 +38,14 @@ class CafeStatusServiceTest {
     @Mock
     StatusSseRegistry sseRegistry;
 
+    @Mock
+    CafeStatusCacheService cacheService;
+
     CafeStatusService cafeStatusService;
 
     @BeforeEach
     void setUp() {
-        cafeStatusService = new CafeStatusService(cafeService, statusRepository, sseRegistry);
+        cafeStatusService = new CafeStatusService(cafeService, statusRepository, sseRegistry, cacheService);
     }
 
     @Nested
@@ -52,7 +55,7 @@ class CafeStatusServiceTest {
         @Test
         @DisplayName("존재하는 카페 상태를 조회하면 상태를 반환한다")
         void found() {
-            Cafe cafe = new Cafe("카페", 37.5665, 126.9780, null, "token");
+            Cafe cafe = new Cafe("카페", 37.5665, 126.9780, null, null);
             CafeLiveStatus status = new CafeLiveStatus(
                     cafe, CrowdLevel.NORMAL, Availability.YES, Availability.MAYBE, Availability.NO,
                     Instant.now(), Instant.now().plusSeconds(1800)
@@ -80,9 +83,9 @@ class CafeStatusServiceTest {
     class Upsert {
 
         @Test
-        @DisplayName("새 상태를 생성하면 SSE가 발행된다")
+        @DisplayName("새 상태를 생성하면 캐시에 저장되고 SSE가 발행된다")
         void createNewStatus() {
-            Cafe cafe = new Cafe("카페", 37.5665, 126.9780, null, "token");
+            Cafe cafe = new Cafe("카페", 37.5665, 126.9780, null, null);
             UpdateCafeStatusRequest req = new UpdateCafeStatusRequest(
                     CrowdLevel.RELAXED, Availability.YES, Availability.YES, Availability.YES
             );
@@ -90,17 +93,19 @@ class CafeStatusServiceTest {
             given(cafeService.get(1L)).willReturn(cafe);
             given(statusRepository.findById(1L)).willReturn(Optional.empty());
             given(statusRepository.save(any(CafeLiveStatus.class))).willAnswer(inv -> inv.getArgument(0));
+            given(cacheService.publishUpdate(any(), any())).willReturn(false);
 
             CafeLiveStatus result = cafeStatusService.upsert(1L, req);
 
             assertThat(result.getCrowdLevel()).isEqualTo(CrowdLevel.RELAXED);
+            verify(cacheService).put(any(), any());
             verify(sseRegistry).publish(any(), any());
         }
 
         @Test
-        @DisplayName("기존 상태를 업데이트하면 SSE가 발행된다")
+        @DisplayName("기존 상태를 업데이트하면 캐시에 저장되고 SSE가 발행된다")
         void updateExistingStatus() {
-            Cafe cafe = new Cafe("카페", 37.5665, 126.9780, null, "token");
+            Cafe cafe = new Cafe("카페", 37.5665, 126.9780, null, null);
             CafeLiveStatus existingStatus = new CafeLiveStatus(
                     cafe, CrowdLevel.NORMAL, Availability.YES, Availability.YES, Availability.YES,
                     Instant.now().minusSeconds(300), Instant.now().plusSeconds(1500)
@@ -111,12 +116,33 @@ class CafeStatusServiceTest {
 
             given(cafeService.get(1L)).willReturn(cafe);
             given(statusRepository.findById(1L)).willReturn(Optional.of(existingStatus));
+            given(cacheService.publishUpdate(any(), any())).willReturn(false);
 
             CafeLiveStatus result = cafeStatusService.upsert(1L, req);
 
             assertThat(result.getCrowdLevel()).isEqualTo(CrowdLevel.FULL);
             assertThat(result.getParty2()).isEqualTo(Availability.NO);
+            verify(cacheService).put(any(), any());
             verify(sseRegistry).publish(any(), any());
+        }
+
+        @Test
+        @DisplayName("Redis Pub/Sub가 활성화되면 로컬 SSE 직접 발행을 건너뛴다")
+        void redisPubSubActive_skipsLocalSse() {
+            Cafe cafe = new Cafe("카페", 37.5665, 126.9780, null, null);
+            UpdateCafeStatusRequest req = new UpdateCafeStatusRequest(
+                    CrowdLevel.RELAXED, Availability.YES, Availability.YES, Availability.YES
+            );
+
+            given(cafeService.get(1L)).willReturn(cafe);
+            given(statusRepository.findById(1L)).willReturn(Optional.empty());
+            given(statusRepository.save(any(CafeLiveStatus.class))).willAnswer(inv -> inv.getArgument(0));
+            given(cacheService.publishUpdate(any(), any())).willReturn(true);
+
+            cafeStatusService.upsert(1L, req);
+
+            verify(cacheService).put(any(), any());
+            verify(cacheService).publishUpdate(any(), any());
         }
     }
 }

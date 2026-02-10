@@ -2,18 +2,19 @@ package com.example.cafestatus.cafe.service;
 
 import com.example.cafestatus.cafe.dto.CafeMapItemResponse;
 import com.example.cafestatus.cafe.entity.Cafe;
+import com.example.cafestatus.status.cache.StatusCacheModel;
+import com.example.cafestatus.status.dto.StatusSummary;
 import com.example.cafestatus.status.entity.CafeLiveStatus;
 import com.example.cafestatus.status.mapper.StatusViewMapper;
 import com.example.cafestatus.status.repository.CafeLiveStatusRepository;
+import com.example.cafestatus.status.service.CafeStatusCacheService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -25,10 +26,14 @@ public class CafeSearchService {
 
     private final CafeService cafeService;
     private final CafeLiveStatusRepository statusRepository;
+    private final CafeStatusCacheService cacheService;
 
-    public CafeSearchService(CafeService cafeService, CafeLiveStatusRepository statusRepository) {
+    public CafeSearchService(CafeService cafeService,
+                             CafeLiveStatusRepository statusRepository,
+                             CafeStatusCacheService cacheService) {
         this.cafeService = cafeService;
         this.statusRepository = statusRepository;
+        this.cacheService = cacheService;
     }
 
     public List<CafeMapItemResponse> findNearbyWithStatus(double lat, double lng, double radiusMeters, int limit) {
@@ -47,13 +52,36 @@ public class CafeSearchService {
         Instant now = Instant.now();
         List<Long> ids = cafes.stream().map(Cafe::getId).toList();
 
-        Map<Long, CafeLiveStatus> statusMap = statusRepository.findByCafeIdIn(ids).stream()
-                .collect(Collectors.toMap(CafeLiveStatus::getCafeId, Function.identity()));
+        // Try cache first
+        Map<Long, StatusCacheModel> cachedMap = cacheService.getMultiple(ids);
 
+        // Find IDs that missed cache
+        List<Long> missIds = ids.stream()
+                .filter(id -> !cachedMap.containsKey(id))
+                .toList();
+
+        // Fetch misses from DB and backfill cache
+        Map<Long, CafeLiveStatus> dbStatusMap = Map.of();
+        if (!missIds.isEmpty()) {
+            dbStatusMap = statusRepository.findByCafeIdIn(missIds).stream()
+                    .collect(Collectors.toMap(CafeLiveStatus::getCafeId, Function.identity()));
+            for (var entry : dbStatusMap.entrySet()) {
+                cacheService.put(entry.getKey(), entry.getValue());
+            }
+        }
+
+        Map<Long, CafeLiveStatus> finalDbStatusMap = dbStatusMap;
         return cafes.stream()
                 .map(c -> {
-                    CafeLiveStatus s = statusMap.get(c.getId());
-                    var summary = (s == null) ? StatusViewMapper.unknown() : StatusViewMapper.from(s, now);
+                    StatusSummary summary = null;
+                    StatusCacheModel cached = cachedMap.get(c.getId());
+                    if (cached != null) {
+                        summary = cached.toSummary(now);
+                    }
+                    if (summary == null) {
+                        CafeLiveStatus s = finalDbStatusMap.get(c.getId());
+                        summary = (s == null) ? StatusViewMapper.unknown() : StatusViewMapper.from(s, now);
+                    }
                     return new CafeMapItemResponse(
                             c.getId(), c.getName(),
                             c.getLatitude(), c.getLongitude(),

@@ -7,7 +7,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -71,14 +70,6 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(new ErrorResponse("MISSING_PARAMETER", message, Instant.now().toString()));
-    }
-
-    @ExceptionHandler(MissingRequestHeaderException.class)
-    public ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException e) {
-        log.warn("필수 헤더 누락: {}", e.getHeaderName());
-        return ResponseEntity
-                .status(HttpStatus.UNAUTHORIZED)
-                .body(new ErrorResponse("UNAUTHORIZED", "Missing required header: " + e.getHeaderName(), Instant.now().toString()));
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)

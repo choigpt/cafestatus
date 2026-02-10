@@ -1,7 +1,9 @@
 package com.example.cafestatus.common.exception;
 
 import com.example.cafestatus.cafe.dto.CafeCreateRequest;
+import com.example.cafestatus.support.TestAuthHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,12 +28,21 @@ class GlobalExceptionHandlerTest {
     @Autowired
     ObjectMapper objectMapper;
 
+    TestAuthHelper authHelper;
+
+    @BeforeEach
+    void setUp() {
+        authHelper = new TestAuthHelper(mockMvc, objectMapper);
+    }
+
     @Test
     @DisplayName("유효성 검증 실패 시 VALIDATION_ERROR를 반환한다")
     void validationError() throws Exception {
+        String token = authHelper.signUpAndGetToken();
         CafeCreateRequest req = new CafeCreateRequest("", null, null, null);
 
-        mockMvc.perform(post("/api/cafes")
+        mockMvc.perform(post("/api/owner/cafes")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isBadRequest())
@@ -74,7 +85,10 @@ class GlobalExceptionHandlerTest {
     @Test
     @DisplayName("JSON 파싱 실패 시 INVALID_REQUEST_BODY를 반환한다")
     void invalidJsonError() throws Exception {
-        mockMvc.perform(post("/api/cafes")
+        String token = authHelper.signUpAndGetToken();
+
+        mockMvc.perform(post("/api/owner/cafes")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{ invalid json }"))
                 .andExpect(status().isBadRequest())
@@ -91,11 +105,14 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    @DisplayName("토큰 누락 시 401 UNAUTHORIZED를 반환한다")
+    @DisplayName("인증 없이 보호 엔드포인트 접근 시 401 JSON을 반환한다")
     void unauthorizedError() throws Exception {
         mockMvc.perform(put("/api/owner/cafes/{cafeId}/status", 1)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"crowdLevel\":\"NORMAL\",\"party2\":\"YES\",\"party3\":\"YES\",\"party4\":\"YES\"}"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.message").value("인증이 필요합니다"))
+                .andExpect(jsonPath("$.timestamp").exists());
     }
 }

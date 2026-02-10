@@ -4,8 +4,9 @@ import com.example.cafestatus.cafe.dto.CafeCreateRequest;
 import com.example.cafestatus.status.dto.UpdateCafeStatusRequest;
 import com.example.cafestatus.status.entity.Availability;
 import com.example.cafestatus.status.entity.CrowdLevel;
-import com.example.cafestatus.support.CreatedCafe;
+import com.example.cafestatus.support.TestAuthHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,10 +28,18 @@ public class CafeStatusFlowTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
 
+    TestAuthHelper authHelper;
+
+    @BeforeEach
+    void setUp() {
+        authHelper = new TestAuthHelper(mockMvc, objectMapper);
+    }
+
     @Test
-    @DisplayName("매장이 ownerToken으로 상태를 업데이트하면 손님 조회에서 동일한 값이 나온다")
+    @DisplayName("매장이 JWT로 상태를 업데이트하면 손님 조회에서 동일한 값이 나온다")
     void ownerUpdates_thenCustomerGets() throws Exception {
-        CreatedCafe created = createCafe("카페상태", 37.5665, 126.9780);
+        String token = authHelper.signUpAndGetToken();
+        long cafeId = createCafe(token, "카페상태", 37.5665, 126.9780);
 
         UpdateCafeStatusRequest req = new UpdateCafeStatusRequest(
                 CrowdLevel.NORMAL,
@@ -39,12 +48,12 @@ public class CafeStatusFlowTest {
                 Availability.NO
         );
 
-        mockMvc.perform(put("/api/owner/cafes/{id}/status", created.cafeId())
-                        .header("X-OWNER-TOKEN", created.ownerToken())
+        mockMvc.perform(put("/api/owner/cafes/{id}/status", cafeId)
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.cafeId").value((int) created.cafeId()))
+                .andExpect(jsonPath("$.cafeId").value((int) cafeId))
                 .andExpect(jsonPath("$.crowdLevel").value("NORMAL"))
                 .andExpect(jsonPath("$.party2").value("YES"))
                 .andExpect(jsonPath("$.party3").value("MAYBE"))
@@ -52,19 +61,22 @@ public class CafeStatusFlowTest {
                 .andExpect(jsonPath("$.updatedAt").exists())
                 .andExpect(jsonPath("$.expiresAt").exists());
 
-        mockMvc.perform(get("/api/cafes/{id}/status", created.cafeId()))
+        mockMvc.perform(get("/api/cafes/{id}/status", cafeId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.crowdLevel").value("NORMAL"))
                 .andExpect(jsonPath("$.party2").value("YES"))
                 .andExpect(jsonPath("$.party3").value("MAYBE"))
                 .andExpect(jsonPath("$.party4").value("NO"))
-                .andExpect(jsonPath("$.expired").isBoolean());
+                .andExpect(jsonPath("$.stale").isBoolean());
     }
 
     @Test
-    @DisplayName("ownerToken이 틀리면 상태 업데이트는 403이다")
-    void invalidOwnerToken_forbidden() throws Exception {
-        CreatedCafe created = createCafe("카페토큰", 37.5665, 126.9780);
+    @DisplayName("다른 사장 JWT로 남의 카페 상태 업데이트는 403이다")
+    void differentOwner_forbidden() throws Exception {
+        String token1 = authHelper.signUpAndGetToken();
+        long cafeId = createCafe(token1, "카페토큰", 37.5665, 126.9780);
+
+        String token2 = authHelper.signUpAndGetToken();
 
         UpdateCafeStatusRequest req = new UpdateCafeStatusRequest(
                 CrowdLevel.FULL,
@@ -73,17 +85,18 @@ public class CafeStatusFlowTest {
                 Availability.NO
         );
 
-        mockMvc.perform(put("/api/owner/cafes/{id}/status", created.cafeId())
-                        .header("X-OWNER-TOKEN", "wrong-token")
+        mockMvc.perform(put("/api/owner/cafes/{id}/status", cafeId)
+                        .header("Authorization", "Bearer " + token2)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    @DisplayName("ownerToken이 없으면 상태 업데이트는 401이다")
-    void missingOwnerToken_unauthorized() throws Exception {
-        CreatedCafe created = createCafe("카페토큰없음", 37.5665, 126.9780);
+    @DisplayName("JWT 없이 상태 업데이트는 401이다")
+    void missingAuth_unauthorized() throws Exception {
+        String token = authHelper.signUpAndGetToken();
+        long cafeId = createCafe(token, "카페토큰없음", 37.5665, 126.9780);
 
         UpdateCafeStatusRequest req = new UpdateCafeStatusRequest(
                 CrowdLevel.FULL,
@@ -92,7 +105,7 @@ public class CafeStatusFlowTest {
                 Availability.NO
         );
 
-        mockMvc.perform(put("/api/owner/cafes/{id}/status", created.cafeId())
+        mockMvc.perform(put("/api/owner/cafes/{id}/status", cafeId)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isUnauthorized());
@@ -106,10 +119,11 @@ public class CafeStatusFlowTest {
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
     }
 
-    private CreatedCafe createCafe(String name, double lat, double lng) throws Exception {
+    private long createCafe(String token, String name, double lat, double lng) throws Exception {
         CafeCreateRequest req = new CafeCreateRequest(name, lat, lng, null);
 
-        String json = mockMvc.perform(post("/api/cafes")
+        String json = mockMvc.perform(post("/api/owner/cafes")
+                        .header("Authorization", "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isCreated())
@@ -117,9 +131,6 @@ public class CafeStatusFlowTest {
                 .getResponse()
                 .getContentAsString();
 
-        long id = objectMapper.readTree(json).get("cafeId").asLong();
-        String token = objectMapper.readTree(json).get("ownerToken").asText();
-
-        return new CreatedCafe(id, token);
+        return objectMapper.readTree(json).get("id").asLong();
     }
 }

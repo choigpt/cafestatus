@@ -3,6 +3,16 @@ spring:
     name: cafe-status
   profiles:
     active: dev
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+cache:
+  redis:
+    enabled: false
+  status:
+    ttl-minutes: 30
 
 server:
   port: 8080
@@ -19,6 +29,11 @@ springdoc:
     path: /swagger-ui.html
   api-docs:
     path: /api-docs
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-expiration-ms: 900000
+  refresh-expiration-ms: 604800000
 
 management:
   endpoints:

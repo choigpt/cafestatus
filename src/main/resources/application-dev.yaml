@@ -15,6 +15,9 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+jwt:
+  secret: devSecretKeyThatIsLongEnoughForHS256AlgorithmTesting1234567890
+
 logging:
   level:
     com.example.cafestatus: DEBUG

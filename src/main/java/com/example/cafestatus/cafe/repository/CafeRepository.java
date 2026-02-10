@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface CafeRepository extends JpaRepository<Cafe, Long> {
 
@@ -18,4 +19,9 @@ public interface CafeRepository extends JpaRepository<Cafe, Long> {
     List<Cafe> findInBoundingBox(double minLat, double maxLat, double minLng, double maxLng);
 
     Page<Cafe> findByNameContainingIgnoreCase(String name, Pageable pageable);
+
+    Page<Cafe> findByOwnerId(Long ownerId, Pageable pageable);
+
+    @Query("select c from Cafe c left join fetch c.owner where c.id = :id")
+    Optional<Cafe> findByIdWithOwner(Long id);
 }

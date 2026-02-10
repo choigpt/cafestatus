@@ -7,6 +7,7 @@ import com.example.cafestatus.status.service.CafeStatusService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
@@ -15,8 +16,6 @@ import java.time.Instant;
 @RestController
 @RequestMapping("/api/owner/cafes")
 public class OwnerCafeStatusController {
-
-    private static final String OWNER_TOKEN_HEADER = "X-OWNER-TOKEN";
 
     private final CafeService cafeService;
     private final CafeStatusService statusService;
@@ -29,9 +28,9 @@ public class OwnerCafeStatusController {
     @Operation(summary = "카페 실시간 상태 업데이트")
     @PutMapping("/{cafeId}/status")
     public CafeStatusResponse update(@PathVariable Long cafeId,
-                                     @RequestHeader(name = OWNER_TOKEN_HEADER, required = false) String ownerToken,
+                                     @AuthenticationPrincipal Long ownerId,
                                      @Valid @RequestBody UpdateCafeStatusRequest req) {
-        cafeService.verifyOwner(cafeId, ownerToken);
+        cafeService.verifyOwnership(cafeId, ownerId);
         var saved = statusService.upsert(cafeId, req);
         return CafeStatusResponse.from(saved, Instant.now());
     }

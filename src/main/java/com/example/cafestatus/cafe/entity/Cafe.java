@@ -1,5 +1,6 @@
 package com.example.cafestatus.cafe.entity;
 
+import com.example.cafestatus.auth.entity.Owner;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -37,27 +38,24 @@ public class Cafe {
     @Column(length = 255)
     private String address;
 
-    @Column(nullable = false)
-    private String ownerToken;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id")
+    private Owner owner;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
-    public Cafe(String name, Double latitude, Double longitude, String address, String ownerToken) {
+    public Cafe(String name, Double latitude, Double longitude, String address, Owner owner) {
         this.name = name;
         this.latitude = latitude;
         this.longitude = longitude;
         this.address = address;
-        this.ownerToken = ownerToken;
+        this.owner = owner;
     }
 
     @PrePersist
     void onCreate() {
         this.createdAt = Instant.now();
-    }
-
-    public void rotateOwnerToken(String newToken) {
-        this.ownerToken = newToken;
     }
 
     public void update(String name, String address) {

@@ -4,11 +4,13 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.Deque;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,8 +19,14 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
 
-    private static final int MAX_REQUESTS_PER_MINUTE = 60;
+    private final int maxRequestsPerMinute;
     private static final long WINDOW_MS = 60_000;
+
+    public RateLimitFilter(
+            @Value("${rate-limit.max-requests-per-minute:60}")
+            int maxRequestsPerMinute) {
+        this.maxRequestsPerMinute = maxRequestsPerMinute;
+    }
 
     private final Map<String, Deque<Long>> requestLog = new ConcurrentHashMap<>();
 
@@ -44,11 +52,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
             timestamps.pollFirst();
         }
 
-        if (timestamps.size() >= MAX_REQUESTS_PER_MINUTE) {
+        if (timestamps.size() >= maxRequestsPerMinute) {
             response.setStatus(429);
             response.setContentType("application/json");
             response.getWriter().write(
-                    "{\"code\":\"RATE_LIMIT\",\"message\":\"Too many requests. Please try again later.\",\"timestamp\":\"" + java.time.Instant.now() + "\"}"
+                    "{\"code\":\"RATE_LIMIT\",\"message\":\"Too many requests. Please try again later.\",\"timestamp\":\"" + Instant.now() + "\"}"
             );
             return;
         }
